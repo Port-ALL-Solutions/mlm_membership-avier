@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<openerp>
+<data>
+<template id="cart_custom"  inherit_id="website_sale.total">
+    <xpath expr="//tr[@id='order_total_taxes']" position="replace">
+            <tr width="120" class="text-muted" id="order_total_taxes">
+                <td><abbr title="Taxes may be updated after providing shipping address">Total Taxes:</abbr></td>
+                <td class="text-right">
+                    <span t-field="website_sale_order.amount_tax" style="white-space: nowrap;" t-field-options='{
+                        "widget": "monetary",
+                        "from_currency": "website_sale_order.pricelist_id.currency_id",
+                        "display_currency": "user_id.partner_id.property_product_pricelist.currency_id"
+                    }'/>
+                </td>
+            </tr>
+    </xpath>
+    <xpath expr="//tr[@id='order_total_taxes']" position="before">
+                <t t-foreach="website_sale_order.custom_line_tax(website_sale_order)" t-as="tax_line">
+                    <tr width="120" class="text-muted" >
+                        <td class="text-left"><span t-esc="tax_line" /><span>: </span></td><td class="text-right"><span t-esc="round(website_sale_order.custom_line_tax(website_sale_order).get(tax_line), 3)"  t-esc-options='{"widget": "monetary", "display_currency": "website_sale_order.pricelist_id.currency_id"}' /></td>
+                    </tr>
+                </t>
+    </xpath>
+</template>
+</data>
+</openerp>
