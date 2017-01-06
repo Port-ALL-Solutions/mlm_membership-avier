@@ -18,16 +18,16 @@ _logger = logging.getLogger(__name__)
 PPG = 20 # Products Per Page
 PPR = 4  # Products Per Row
 
-
-
-
 class membership_visibility(website_sale):
 
     @http.route([
         '/shop',
         '/shop/page/<int:page>',
         '/shop/category/<model("product.public.category"):category>',
-        '/shop/category/<model("product.public.category"):category>/page/<int:page>'
+        '/shop/category/<model("product.public.category"):category>/page/<int:page>',
+# Ajout de la route Enroll pour acheter un membership
+        '/enroll',
+        
     ], type='http', auth="public", website=True)
 
     def membership_product(self, page=0, category=None, search='', website=True, **post):
@@ -36,13 +36,15 @@ class membership_visibility(website_sale):
         attrib_list = request.httprequest.args.getlist('attrib')
         attrib_values = [map(int, v.split("-")) for v in attrib_list if v]
         attrib_set = set([v[1] for v in attrib_values])
+# Vérification de la présence de enroll dans l'url (devrais aussi vérifier le 
+# contenu d'une autre varaible du post (want_membership)        
+        membership = pool.get('res.users').search(cr, uid, ([('partner_id.membership_state', '=', 'paid'), ('id', '=', uid)]), context=context)
+        want_membership = ("enroll" in request.httprequest.path) and not membership
 
         order = request.website.sale_get_order()
 
         domain = self._get_search_domain(search, category, attrib_values)
-        #_logger.info('FFFFFFFFFFFFFFFFFFFFFFFFFFFF %s', uid)
 
-        membership = pool.get('res.users').search(cr, uid, ([('partner_id.membership_state', '=', 'paid'), ('id', '=', uid)]), context=context)
 
         cart_member = None
         if order:
@@ -50,12 +52,35 @@ class membership_visibility(website_sale):
                 if line.product_id.membership == True:
                     cart_member = True
 
-
-        if uid != 1 and not membership and not cart_member:
-            domain += [('membership', '=', True)]
-
-        if uid != 1 and membership:
-            domain += [('membership', '=', False)]
+        if uid != 1:
+            # pas admin
+            if membership :
+                # si membre, affiche pas membership
+                domain += [('membership', '=', False)]
+                # vérfier si affichage startkit
+            else:
+                # pas member
+                if not cart_member:
+                    # pas produit mbr dans cart
+                    if want_membership:
+                        # Provient de enroll afficher juste membership 
+                        domain += [('membership', '=', True)]
+                    else:
+                        # provient de shop publique.
+                        # pas de membership, ni starttkit
+                        domain += [('membership', '=', False)]
+                        domain += [('startKit', '=', False)]
+                else:
+                    # Si membership dans cart
+                    domain += [('startKit', '=', False)]
+                    # on fixe manuellement la liste de prix
+                    context['pricelist'] = 5 
+                        
+#                        domain += [('|',('membership', '=', True),[('startKit', '=', True)]
+                   
+        #Membre
+#        if uid != 1 and (membership or not want_membership):
+#            domain += [('membership', '=', False)]
 
         keep = QueryURL('/shop', category=category and int(category), search=search, attrib=attrib_list)
 
@@ -97,6 +122,7 @@ class membership_visibility(website_sale):
         compute_currency = lambda price: pool['res.currency']._compute(cr, uid, from_currency, to_currency, price, context=context)
 
         values = {
+            'want_membership': want_membership,
             'search': search,
             'category': category,
             'attrib_values': attrib_values,
@@ -115,9 +141,7 @@ class membership_visibility(website_sale):
             'attrib_encode': lambda attribs: werkzeug.url_encode([('attrib',i) for i in attribs]),
         }
 
-
         return request.website.render("website_sale.products", values)
-
 
     @http.route(['/shop/cart/update'], type='http', auth="public", methods=['POST'], website=True)
     def cart_update(self, product_id, add_qty=1, set_qty=0, **kw):
