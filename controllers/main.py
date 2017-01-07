@@ -9,6 +9,7 @@ from openerp.http import request
 from openerp.tools.translate import _
 from openerp.addons.website.models.website import slug
 from openerp.addons.web.controllers.main import login_redirect
+from openerp.addons.website_sale.controllers import main
 from openerp.addons.website_sale.controllers.main import website_sale
 from openerp.addons.website_sale.controllers.main import QueryURL
 from openerp.addons.website_sale.controllers.main import table_compute
@@ -40,11 +41,10 @@ class membership_visibility(website_sale):
 # contenu d'une autre varaible du post (want_membership)        
         membership = pool.get('res.users').search(cr, uid, ([('partner_id.membership_state', '=', 'paid'), ('id', '=', uid)]), context=context)
         want_membership = ("enroll" in request.httprequest.path) and not membership
-
+        context['want_membership'] = want_membership
         order = request.website.sale_get_order()
 
         domain = self._get_search_domain(search, category, attrib_values)
-
 
         cart_member = None
         if order:
@@ -74,7 +74,7 @@ class membership_visibility(website_sale):
                     # Si membership dans cart
                     domain += [('startKit', '=', False)]
                     # on fixe manuellement la liste de prix
-                    context['pricelist'] = 5 
+#                    context['pricelist'] = 5 
                         
 #                        domain += [('|',('membership', '=', True),[('startKit', '=', True)]
                    
@@ -151,6 +151,62 @@ class membership_visibility(website_sale):
         if product_membership:
             add_qty = 0
 
-
         request.website.sale_get_order(force_create=1)._cart_update(product_id=int(product_id), add_qty=float(add_qty), set_qty=float(set_qty))
         return request.redirect("/shop/cart")
+
+
+def get_reiva_pricelist():
+    cr, uid, context, pool = request.cr, request.uid, request.context, request.registry
+
+    # devrait pouvoir être transféré en paramètre dans l'interface
+    # de configuration odoo (2 champs many2one vers pricelist à ajouter dans
+    # res_compagnie et ajouter les vues pour les modifier dans l'admin
+    pubPriceList = 1
+    mbrPriceList = 5
+    
+    membership = pool.get('res.users').search(cr, uid, ([('partner_id.membership_state', '=', 'paid'), ('id', '=', uid)]), context=context)
+
+    want_membership = context.get('want_membership')
+
+    
+    order = request.website.sale_get_order()
+
+    cart_member = False
+
+    if order:
+        for line in order.order_line:
+            if line.product_id.membership == True:
+                cart_member = True
+
+    if uid != 1:
+        # pas admin
+        if membership :
+            # Membre, liste de prix membre = liste prix membre
+
+            pricelist = mbrPriceList
+
+            # Mais on devrait utiliser la liste prix assigné aux partenaires
+            # en commentant la ligne du haut et dé-commentant le bloc ci-bas
+            
+            #partner = pool['res.users'].browse(cr, SUPERUSER_ID, uid, context=context).partner_id
+            #pricelist = partner.property_product_pricelist
+            #if not pricelist:
+            #    _logger.error('Fail to find pricelist for partner "%s" (id %s)', partner.name, partner.id)        else:
+        
+        else:    
+            # pas membre
+            if want_membership or cart_member:
+                # pas produit membership dans le cart = liste prix public
+                pricelist = mbrPriceList
+            else:
+                # Si membership dans le cart = liste prix membre
+                pricelist = pubPriceList
+                
+    pricelist_obj = pool['product.pricelist'].browse(cr, SUPERUSER_ID, pricelist, context=context)
+    # injection dans cart ???
+    if order :  
+        order.pricelist_id = pricelist_obj.id
+
+    return pricelist_obj
+
+main.get_pricelist = get_reiva_pricelist
