@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
 import werkzeug
+from datetime import datetime
 
 from openerp import SUPERUSER_ID
 from openerp import http
@@ -28,7 +29,7 @@ class membership_visibility(website_sale):
         '/shop/category/<model("product.public.category"):category>/page/<int:page>',
 # Ajout de la route Enroll pour acheter un membership
         '/enroll',
-        
+        '/prefered'
     ], type='http', auth="public", website=True)
 
     def membership_product(self, page=0, category=None, search='', website=True, **post):
@@ -40,48 +41,80 @@ class membership_visibility(website_sale):
 # Vérification de la présence de enroll dans l'url (devrais aussi vérifier le 
 # contenu d'une autre varaible du post (want_membership)        
         membership = pool.get('res.users').search(cr, uid, ([('partner_id.membership_state', '=', 'paid'), ('id', '=', uid)]), context=context)
+
         want_membership = ("enroll" in request.httprequest.path) and not membership
+        want_prefered = ("prefered" in request.httprequest.path) and not membership
+        
         context['want_membership'] = want_membership
+        context['want_prefered'] = want_prefered
+
         order = request.website.sale_get_order()
 
         domain = self._get_search_domain(search, category, attrib_values)
-
+              
         cart_member = None
         if order:
             for line in order.order_line:
                 if line.product_id.membership == True:
-                    cart_member = True
+                    cart_member = line.product_id.membership_category_id.id
 
         if uid != 1:
             # pas admin
             if membership :
-                # si membre, affiche pas membership
-                domain += [('membership', '=', False)]
-                # vérfier si affichage startkit
+                # si membre, récupère l'usager correspondant
+                membership_user = pool['res.users'].browse(cr, SUPERUSER_ID, membership, context=context)
+                
+                # vérifie si abonnement a 49.95 (pour avoir droit au start kit
+                if int(membership_user.member_lines[0].membership_id) == 80 and membership_user.reiva_HasStartKit == False:
+                    # Cacul du nombre de jours depuis le début du membership
+
+                    membership_days = abs((datetime.strptime(membership_user.member_lines[0].create_date, '%Y-%m-%d %H:%M:%S') - datetime.now()).days)
+                    # Le filtre est = Produit pas membership et 
+                    # (pas startkit ou nbr jours startkit < nbr jours membership 
+                    domain += [('membership', '=', False),
+                               '|',
+                               ('startKit', '=', 0),
+                               ('startKit', '>', membership_days)
+                               ]
+#                    domain += []
+                
+                else:
+                    # Membership autre que celui a 49.95, pas droit au startkit
+                    domain += [('membership', '=', False)]
+                    domain += [('startKit', '=', 0)]
+                
             else:
                 # pas member
                 if not cart_member:
                     # pas produit mbr dans cart
                     if want_membership:
-                        # Provient de enroll afficher juste membership 
-                        domain += [('membership', '=', True)]
+                        # Provient de enroll afficher juste membership cat 1 
+                        domain += [('membership_category_id', '=', 1)]
+                    elif want_prefered:
+                        # Provient de preferred n'afficher que member cat 2
+                        domain += [('membership_category_id', '=', 2)]
                     else:
                         # provient de shop publique.
                         # pas de membership, ni starttkit
                         domain += [('membership', '=', False)]
-                        domain += [('startKit', '=', False)]
+                        domain += [('startKit', '=', 0)]
                 else:
-                    # Si membership dans cart
-                    domain += [('startKit', '=', False)]
+                    if cart_member == 1:
+                        # Si membership dans cart
+                        domain += [('startKit', '=', 0)]                  
+                        domain += ['|',
+                                   ('membership_category_id', '=', 1),
+                                   ('membership', '=', False)]
+                    else:
+                        domain += [('startKit', '=', 0)]                  
+                        domain += [('membership', '=', False)]
+                        
+                        
+                        
                     # on fixe manuellement la liste de prix
-#                    context['pricelist'] = 5 
                         
 #                        domain += [('|',('membership', '=', True),[('startKit', '=', True)]
                    
-        #Membre
-#        if uid != 1 and (membership or not want_membership):
-#            domain += [('membership', '=', False)]
-
         keep = QueryURL('/shop', category=category and int(category), search=search, attrib=attrib_list)
 
         if not context.get('pricelist'):
@@ -93,6 +126,7 @@ class membership_visibility(website_sale):
         product_obj = pool.get('product.template')
 
         url = "/shop"
+        _logger.info("Domain of product is === " + str(domain) )
         product_count = product_obj.search_count(cr, uid, domain, context=context)
         if search:
             post["search"] = search
@@ -146,13 +180,45 @@ class membership_visibility(website_sale):
     @http.route(['/shop/cart/update'], type='http', auth="public", methods=['POST'], website=True)
     def cart_update(self, product_id, add_qty=1, set_qty=0, **kw):
         cr, uid, context, pool = request.cr, request.uid, request.context, request.registry
+
         product_membership = pool.get('product.product').search(cr, uid, ([('membership', '=', True), ('id', '=', product_id)]), context=context)
+        product_startKit = pool.get('product.product').search(cr, uid, ([('startKit', '>', 0), ('id', '=', product_id)]), context=context)
 
-        if product_membership:
+        if product_membership or product_startKit:
             add_qty = 0
-
+        
         request.website.sale_get_order(force_create=1)._cart_update(product_id=int(product_id), add_qty=float(add_qty), set_qty=float(set_qty))
+
         return request.redirect("/shop/cart")
+
+    
+    @http.route(['/shop/confirmation'], type='http', auth="public", website=True)
+    def payment_confirmation(self, **post):        
+        """ End of checkout process controller. Confirmation is basically seing
+        the status of a sale.order. State at this point :
+
+         - should not have any context / session info: clean them
+         - take a sale.order id, because we request a sale.order and are not
+           session dependant anymore
+        """
+        cr, uid, context = request.cr, request.uid, request.context
+
+        sale_order_id = request.session.get('sale_last_order_id')
+
+        if sale_order_id:
+            order = request.registry['sale.order'].browse(cr, SUPERUSER_ID, sale_order_id, context=context)
+            
+            for line in order.order_line:
+                if line.product_id.startKit > 0:
+                    currentPartner = order.partner_id
+                    partner_values= { 'reiva_HasStartKit': True}                                        
+                    currentPartner.write(partner_values)
+                    cart_member = line.product_id.membership_category_id.id
+        else:
+            return request.redirect('/shop')
+
+        return request.website.render("website_sale.confirmation", {'order': order})
+
 
 
 def get_reiva_pricelist():
@@ -164,11 +230,13 @@ def get_reiva_pricelist():
     pubPriceList = 1
     mbrPriceList = 5
     
+    pricelist = pubPriceList
     membership = pool.get('res.users').search(cr, uid, ([('partner_id.membership_state', '=', 'paid'), ('id', '=', uid)]), context=context)
-
-    want_membership = context.get('want_membership')
-
     
+    currentPartner = pool.get('res.users').browse(cr, SUPERUSER_ID, uid, context).partner_id
+    
+    want_membership = context.get('want_membership')
+   
     order = request.website.sale_get_order()
 
     cart_member = False
@@ -195,14 +263,21 @@ def get_reiva_pricelist():
         
         else:    
             # pas membre
-            if want_membership or cart_member:
+            if want_membership or cart_member :
                 # pas produit membership dans le cart = liste prix public
                 pricelist = mbrPriceList
             else:
                 # Si membership dans le cart = liste prix membre
                 pricelist = pubPriceList
-                
+    else:
+        # admin 
+        pricelist = mbrPriceList
+                    
     pricelist_obj = pool['product.pricelist'].browse(cr, SUPERUSER_ID, pricelist, context=context)
+    if currentPartner.id != 4 and currentPartner.property_product_pricelist.id != pricelist_obj.id :
+        partner_values= { 'property_product_pricelist': pricelist_obj.id}                    
+        currentPartner.write (partner_values)
+    
     # injection dans cart ???
     if order :  
         order.pricelist_id = pricelist_obj.id
