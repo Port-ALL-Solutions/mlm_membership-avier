@@ -157,6 +157,7 @@ class membership_visibility(website_sale):
 
         values = {
             'want_membership': want_membership,
+            'want_prefered': want_prefered,
             'search': search,
             'category': category,
             'attrib_values': attrib_values,
