@@ -17,7 +17,7 @@ from openerp.addons.website_sale.controllers.main import table_compute
 
 _logger = logging.getLogger(__name__)
 
-PPG = 20 # Products Per Page
+PPG = 40 # Products Per Page (20 by default)
 PPR = 4  # Products Per Row
 
 class membership_visibility(website_sale):
