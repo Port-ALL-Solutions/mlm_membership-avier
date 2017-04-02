@@ -63,7 +63,7 @@ class membership_visibility(website_sale):
             if membership :
                 # si membre, récupère l'usager correspondant
                 membership_user = pool['res.users'].browse(cr, SUPERUSER_ID, membership, context=context)
-                
+                membership_days = abs((datetime.strptime(membership_user.member_lines[0].create_date, '%Y-%m-%d %H:%M:%S') - datetime.now()).days)
                 # vérifie si abonnement a 49.95 (pour avoir droit au start kit
                 if int(membership_user.member_lines[0].membership_id) == 80 and membership_user.reiva_HasStartKit == False:
                     # Cacul du nombre de jours depuis le début du membership
@@ -71,17 +71,43 @@ class membership_visibility(website_sale):
                     membership_days = abs((datetime.strptime(membership_user.member_lines[0].create_date, '%Y-%m-%d %H:%M:%S') - datetime.now()).days)
                     # Le filtre est = Produit pas membership et 
                     # (pas startkit ou nbr jours startkit < nbr jours membership 
-                    domain += [('membership', '=', False),
-                               '|',
-                               ('startKit', '=', 0),
-                               ('startKit', '>', membership_days)
+                    domain += [('membership', '=', False),              #produits qui ne sont pas de type membership
+                               '|',                                     #ou
+                               ('startKit', '=', 0),                    #produits sans délai startkit
+                               ('startKit', '>', membership_days)       #produits dont le délai startkit alloué n'est pas expiré 
                                ]
 #                    domain += []
                 
                 else:
                     # Membership autre que celui a 49.95, pas droit au startkit
-                    domain += [('membership', '=', False)]
-                    domain += [('startKit', '=', 0)]
+#                     domain += ['&',
+#                                ('startKit', '=', 0),
+#                                ('|',
+#                                     ('membership', '=', False),          #ou
+#                                     ('&',
+#                                         ('id','=',90),
+#                                         ('startKit', '>', membership_days)
+#                                     )
+#                                 )       #produit membership associé offert aux clients privilégiés exclusivement
+#                                ]
+                    dont_show = [62,64,75]
+                    if membership_days < 60:
+                        dont_show.append(88)
+                    else:
+                        dont_show(90)
+                    domain = [('id','not in',dont_show)]
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+#                    domain += [('membership', '=', False)]
+                    
                 
             else:
                 # pas member
@@ -90,6 +116,7 @@ class membership_visibility(website_sale):
                     if want_membership:
                         # Provient de enroll afficher juste membership cat 1 
                         domain += [('membership_category_id', '=', 1)]
+                        domain += [('id', '!=',90)]
                     elif want_prefered:
                         # Provient de preferred n'afficher que member cat 2
                         domain += [('membership_category_id', '=', 2)]
