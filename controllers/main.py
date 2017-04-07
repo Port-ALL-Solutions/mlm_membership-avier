@@ -64,7 +64,7 @@ class membership_visibility(website_sale):
                 # si membre, récupère l'usager correspondant
                 membership_user = pool['res.users'].browse(cr, SUPERUSER_ID, membership, context=context)
                 membership_days = abs((datetime.strptime(membership_user.member_lines[0].create_date, '%Y-%m-%d %H:%M:%S') - datetime.now()).days)
-                # vérifie si abonnement a 49.95 (pour avoir droit au start kit
+                # vérifie si adhésion associé sans kit de démarrage à 49.95 (pour avoir droit au start kit) [80=id de la variante]
                 if int(membership_user.member_lines[0].membership_id) == 80 and membership_user.reiva_HasStartKit == False:
                     # Cacul du nombre de jours depuis le début du membership
 
@@ -77,9 +77,8 @@ class membership_visibility(website_sale):
                                ('startKit', '>', membership_days)       #produits dont le délai startkit alloué n'est pas expiré 
                                ]
 #                    domain += []
-                
-                else:
-                    # Membership autre que celui a 49.95, pas droit au startkit
+                elif int(membership_user.member_lines[0].membership_id) == 93:
+                    # Membership autre que celui a 49.95, pas droit au startkit [client privilégié, 93=id de la variante]]
 #                     domain += ['&',
 #                                ('startKit', '=', 0),
 #                                ('|',
@@ -90,16 +89,15 @@ class membership_visibility(website_sale):
 #                                     )
 #                                 )       #produit membership associé offert aux clients privilégiés exclusivement
 #                                ]
-                    dont_show = [62,64,88]          #62 et 64: kits de démarrage associés 88:adhésion client privilégié 
+                    dont_show = [61,62,63,64,88]   #ajouter 88 - 62 et 64: kits de démarrage 75:adhésion ass ind, 88:adhésion client privilégié
                     if membership_days < 60:
-                        dont_show.append(75)        #adhésion associé régulière
+                        dont_show.append(75)
                     else:
                         dont_show.append(90)        #adhésion associé escomptée pour client privilégié
-                    domain = [('id','not in',dont_show)]
+                    domain += [('id','not in',dont_show)]
         
-                    
-#                    domain += [('membership', '=', False)]
-                    
+                else:
+                    domain += [('membership', '=', False)]
                 
             else:
                 # pas member
